@@ -1436,7 +1436,48 @@ document.addEventListener('DOMContentLoaded', function() {
     if (e.target === this) closeModal();
   });
 
-  // Lead form validation & submit
+  // ========== LOCAL STORAGE HELPER ==========
+  function saveLeadToLocal(data) {
+    let leads = [];
+    try {
+      leads = JSON.parse(localStorage.getItem('rapido_leads') || '[]');
+    } catch(e) { leads = []; }
+    data.id = Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+    data.created_at = new Date().toISOString();
+    leads.push(data);
+    localStorage.setItem('rapido_leads', JSON.stringify(leads));
+  }
+
+  // ========== API HELPER ==========
+  // Try port 5000 (Python server) first, fallback to 3001 (Node.js server)
+  const API_PORT = (window.location.port === '5000' || window.location.port === '') ? '5000' : '3001';
+  const API_URL = window.location.protocol + '//' + window.location.hostname + ':' + API_PORT + '/api/lead';
+
+  async function submitLeadToAPI(data) {
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return await response.json();
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  // Shared save function: always saves to localStorage, tries API in background
+  function saveLeadAndShowThankYou(data, source) {
+    // Always save to localStorage first
+    saveLeadToLocal(data);
+    // Try API in the background (don't block UX)
+    submitLeadToAPI({ ...data, source });
+    // Show thank you immediately
+    showThankYou();
+  }
+
+  // ========== LEAD MODAL FORM ==========
   leadForm.addEventListener('submit', function(e) {
     e.preventDefault();
     let valid = true;
@@ -1448,7 +1489,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const phoneError = document.getElementById('leadPhoneError');
     const emailError = document.getElementById('leadEmailError');
 
-    // Reset
+    // Reset errors
     [name, phone, email].forEach(f => f.closest('.form-group').classList.remove('error'));
     [nameError, phoneError, emailError].forEach(e => e.classList.remove('error-message'));
 
@@ -1468,12 +1509,20 @@ document.addEventListener('DOMContentLoaded', function() {
       valid = false;
     }
 
-    if (valid) {
-      showThankYou();
-    }
+    if (!valid) return;
+
+    const data = {
+      name: name.value.trim(),
+      phone: phone.value.trim(),
+      email: email.value.trim(),
+      service: document.getElementById('leadService').value,
+      message: document.getElementById('leadMessage').value.trim()
+    };
+
+    saveLeadAndShowThankYou(data, 'modal');
   });
 
-  // ========== CONTACT FORM VALIDATION ==========
+  // ========== CONTACT FORM ==========
   const contactForm = document.getElementById('contactForm');
   contactForm.addEventListener('submit', function(e) {
     e.preventDefault();
@@ -1505,13 +1554,19 @@ document.addEventListener('DOMContentLoaded', function() {
       valid = false;
     }
 
-    if (valid) {
-      // Show success - we can just reset + alert or open modal thank you concept
-      // For simplicity, open the modal with thank you view
-      openModal();
-      showThankYou();
-      contactForm.reset();
-    }
+    if (!valid) return;
+
+    const data = {
+      name: cName.value.trim(),
+      phone: cPhone.value.trim(),
+      email: cEmail.value.trim(),
+      service: document.getElementById('contactService').value,
+      message: document.getElementById('contactMessage').value.trim()
+    };
+
+    openModal();
+    saveLeadAndShowThankYou(data, 'contact');
+    contactForm.reset();
   });
 
   // ========== CHATBOT ==========
